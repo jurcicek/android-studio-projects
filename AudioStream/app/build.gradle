@@ -5,7 +5,7 @@ android {
     buildToolsVersion "21.1.2"
 
     defaultConfig {
-        applicationId "cz.voicebre.audiostreem"
+        applicationId "cz.voicebre.audiostream"
         minSdkVersion 16
         targetSdkVersion 21
         versionCode 1

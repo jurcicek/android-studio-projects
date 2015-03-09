@@ -31,7 +31,7 @@
     <Button
         android:layout_width="fill_parent"
         android:layout_height="64dp"
-        android:text="@string/bluetooth_off_button"
+        android:text="@string/turn_bluetooth_on_button"
         android:id="@+id/bluetooth_button"
         android:layout_alignParentBottom="true"
         android:layout_centerHorizontal="true"

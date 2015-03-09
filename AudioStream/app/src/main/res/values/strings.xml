@@ -4,6 +4,6 @@
     <string name="record">Start recording</string>
     <string name="stop_recording_button">Stop recording</string>
     <string name="start_recording_button">Start recording</string>
-    <string name="bluetooth_off_button">Bluetooth off</string>
-    <string name="bluetooth_on_button">Bluetooth on</string>
+    <string name="turn_bluetooth_on_button">Turn Bluetooth on</string>
+    <string name="turn_bluetooth_off_button">Turn Bluetooth off</string>
 </resources>

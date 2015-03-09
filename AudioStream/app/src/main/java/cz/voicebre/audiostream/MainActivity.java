@@ -1,7 +1,9 @@
 package cz.voicebre.audiostream;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.graphics.Color;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioRecord;
@@ -13,20 +15,13 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ProgressBar;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.net.InetAddress;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.IntBuffer;
 import java.nio.ShortBuffer;
 
 
@@ -92,11 +87,37 @@ public class MainActivity extends ActionBarActivity {
         if(!bluetoothOn) {
             AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 
+            registerReceiver(new BroadcastReceiver() {
+
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    int state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
+                    Log.d(TAG, "Audio SCO state: " + state);
+
+                    if (AudioManager.SCO_AUDIO_STATE_CONNECTED == state) {
+                        /*
+                         * Now the connection has been established to the bluetooth device.
+                         * Record audio or whatever (on another thread).With AudioRecord you can record with an object created like this:
+                         * new AudioRecord(MediaRecorder.AudioSource.MIC, 8000, AudioFormat.CHANNEL_CONFIGURATION_MONO,
+                         * AudioFormat.ENCODING_PCM_16BIT, audioBufferSize);
+                         *
+                         * After finishing, don't forget to unregister this receiver and
+                         * to stop the bluetooth connection with am.stopBluetoothSco();
+                         */
+                        Log.d(TAG, "Audio SCO state: AudioManager.SCO_AUDIO_STATE_CONNECTED");
+
+                        unregisterReceiver(this);
+                    }
+
+                }
+            }, new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
+
+
             Log.d(TAG, "Starting bluetooth");
             am.startBluetoothSco();
 
             Button btn = (Button)findViewById(R.id.bluetooth_button);
-            btn.setText(getString(R.string.bluetooth_on_button));
+            btn.setText(getString(R.string.turn_bluetooth_off_button));
             bluetoothOn = true;
         }
         else {
@@ -105,7 +126,7 @@ public class MainActivity extends ActionBarActivity {
             am.stopBluetoothSco();
 
             Button btn = (Button)findViewById(R.id.bluetooth_button);
-            btn.setText(getString(R.string.bluetooth_off_button));
+            btn.setText(getString(R.string.turn_bluetooth_on_button));
             bluetoothOn = false;
         }
 
