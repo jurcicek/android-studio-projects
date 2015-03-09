@@ -45,7 +45,7 @@ public class MainActivity extends ActionBarActivity {
             RECORDING_RATE, CHANNEL, FORMAT);
 
     // are we currently sending audio data
-    private boolean currentlySendingAudio = false;
+    private boolean audioStreaming = false;
 
     private boolean bluetoothOn = false;
 
@@ -87,6 +87,13 @@ public class MainActivity extends ActionBarActivity {
         if(!bluetoothOn) {
             AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 
+            if(am.isBluetoothScoOn()) {
+                Log.d(TAG, "Bluetooth is ON");
+            }
+            else {
+                Log.d(TAG, "Bluetooth is OFF");
+            }
+
             registerReceiver(new BroadcastReceiver() {
 
                 @Override
@@ -115,6 +122,14 @@ public class MainActivity extends ActionBarActivity {
 
             Log.d(TAG, "Starting bluetooth");
             am.startBluetoothSco();
+            am.setBluetoothScoOn(true);
+
+            if(am.isBluetoothScoOn()) {
+                Log.d(TAG, "Bluetooth is ON");
+            }
+            else {
+                Log.d(TAG, "Bluetooth is OFF");
+            }
 
             Button btn = (Button)findViewById(R.id.bluetooth_button);
             btn.setText(getString(R.string.turn_bluetooth_off_button));
@@ -133,7 +148,7 @@ public class MainActivity extends ActionBarActivity {
     }
 
     public void onRecordingButtonClick(View v) {
-        if(!currentlySendingAudio) {
+        if(!audioStreaming) {
             startStreamingAudio();
             Button btn = (Button)findViewById(R.id.recording_button);
             btn.setText(getString(R.string.stop_recording_button));
@@ -147,7 +162,7 @@ public class MainActivity extends ActionBarActivity {
 
     private void startStreamingAudio() {
         Log.i(TAG, "Starting the audio stream");
-        currentlySendingAudio = true;
+        audioStreaming = true;
         startStreaming();
     }
 
@@ -185,7 +200,7 @@ public class MainActivity extends ActionBarActivity {
                     if (recorder.getState() != AudioRecord.STATE_INITIALIZED)
                         Log.d(TAG, "AudioRecord init failed");
 
-                    while (currentlySendingAudio == true) {
+                    while (audioStreaming == true) {
                        // read the audio data into the buffer
                         int read = recorder.read(buffer, 0, buffer.length);
 
@@ -221,7 +236,7 @@ public class MainActivity extends ActionBarActivity {
     private void stopStreamingAudio() {
 
         Log.i(TAG, "Stopping the audio stream");
-        currentlySendingAudio = false;
+        audioStreaming = false;
         if (recorder.getState() != AudioRecord.STATE_INITIALIZED)
             Log.i(TAG, "AudioRecord init failed");
         recorder.release();
