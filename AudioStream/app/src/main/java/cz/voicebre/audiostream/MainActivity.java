@@ -1,13 +1,16 @@
 package cz.voicebre.audiostream;
 
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.media.AudioFormat;
+import android.content.ServiceConnection;
+import android.graphics.Color;
 import android.media.AudioManager;
-import android.media.AudioRecord;
-import android.media.MediaRecorder;
+import android.os.IBinder;
+import android.os.Message;
+import android.os.Handler;
 import android.support.v7.app.ActionBarActivity;
 import android.support.v4.app.Fragment;
 import android.os.Bundle;
@@ -19,36 +22,76 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ProgressBar;
+import android.widget.Toast;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.ShortBuffer;
+import java.util.Timer;
+import java.util.TimerTask;
 
 
 public class MainActivity extends ActionBarActivity {
-    private static String TAG = "AudioStream";
+    private static String TAG = "AudioStreamActivity";
 
-    // the server information
-    private static final String SERVER = "xx.xx.xx.xx";
-    private static final int PORT = 50005;
+    AudioStreamService mAudioStreamService;
+    int energy = 0;
 
-    // the audio recording options
-    private static final int RECORDING_RATE = 8000;
-    private static final int CHANNEL = AudioFormat.CHANNEL_IN_MONO;
-    private static final int FORMAT = AudioFormat.ENCODING_PCM_16BIT;
-
-    // the audio recorder
-    private AudioRecord recorder;
-
-    // the minimum buffer size needed for audio recording
-    private static int BUFFER_SIZE = 4*AudioRecord.getMinBufferSize(
-            RECORDING_RATE, CHANNEL, FORMAT);
-
+    private boolean bluetoothOn = false;
     // are we currently sending audio data
     private boolean audioStreaming = false;
 
-    private boolean bluetoothOn = false;
+    private Timer timer = new Timer();
+    private boolean isTimerRunning = true;
 
+    private ProgressBar progressBar;
+
+    /** Defines callbacks for service binding, passed to bindService() */
+    private ServiceConnection mConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName className,
+                                       IBinder service) {
+            // We've bound to LocalService, cast the IBinder and get LocalService instance
+            AudioStreamService.LocalBinder binder = (AudioStreamService.LocalBinder) service;
+            mAudioStreamService = binder.getService();
+            audioStreaming = true;
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName arg0) {
+            audioStreaming = false;
+        }
+    };
+
+
+    public Handler mGuiRefreshHandler = new Handler() {
+        public void handleMessage(Message msg) {
+            if(progressBar != null)
+                progressBar.setProgress(energy);
+                progressBar.setBackgroundColor(Color.rgb(255, 255-energy, 255-energy));
+        }
+    };
+
+    private void startServiceSyncTimer() {
+        if(isTimerRunning) {
+            isTimerRunning = true;
+            timer.scheduleAtFixedRate(new TimerTask() {
+                public void run() {
+                    try {
+                        // update all you need to update from all services
+                        if (mAudioStreamService != null) {
+                            energy = (int) (mAudioStreamService.getEnergy() * 255.0);
+                        }
+                    } catch (java.lang.NullPointerException e) {
+                        Log.e(TAG, "Exception: " + e);
+                    }
+                    mGuiRefreshHandler.obtainMessage(0).sendToTarget();
+                }
+            }, 0, 300);
+        }
+    }
+
+    private void stopServiceSyncTimer() {
+        isTimerRunning = false;
+        timer.cancel();
+    }
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -58,6 +101,21 @@ public class MainActivity extends ActionBarActivity {
                     .add(R.id.container, new PlaceholderFragment())
                     .commit();
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        progressBar = (ProgressBar) findViewById(R.id.progressBar);
+        progressBar.setMax(256);
+        startServiceSyncTimer();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopServiceSyncTimer();
+        unbindService(mConnection);
     }
 
 
@@ -84,162 +142,100 @@ public class MainActivity extends ActionBarActivity {
     }
 
     public void onBluetoothButtonClick(View v) {
-        if(!bluetoothOn) {
-            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-
-            if(am.isBluetoothScoOn()) {
-                Log.d(TAG, "Bluetooth is ON");
-            }
-            else {
-                Log.d(TAG, "Bluetooth is OFF");
-            }
-
-            registerReceiver(new BroadcastReceiver() {
-
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    int state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
-                    Log.d(TAG, "Audio SCO state: " + state);
-
-                    if (AudioManager.SCO_AUDIO_STATE_CONNECTED == state) {
-                        /*
-                         * Now the connection has been established to the bluetooth device.
-                         * Record audio or whatever (on another thread).With AudioRecord you can record with an object created like this:
-                         * new AudioRecord(MediaRecorder.AudioSource.MIC, 8000, AudioFormat.CHANNEL_CONFIGURATION_MONO,
-                         * AudioFormat.ENCODING_PCM_16BIT, audioBufferSize);
-                         *
-                         * After finishing, don't forget to unregister this receiver and
-                         * to stop the bluetooth connection with am.stopBluetoothSco();
-                         */
-                        Log.d(TAG, "Audio SCO state: AudioManager.SCO_AUDIO_STATE_CONNECTED");
-
-                        unregisterReceiver(this);
-                    }
-
-                }
-            }, new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
-
-
-            Log.d(TAG, "Starting bluetooth");
-            am.startBluetoothSco();
-            am.setBluetoothScoOn(true);
-
-            if(am.isBluetoothScoOn()) {
-                Log.d(TAG, "Bluetooth is ON");
-            }
-            else {
-                Log.d(TAG, "Bluetooth is OFF");
-            }
-
-            Button btn = (Button)findViewById(R.id.bluetooth_button);
-            btn.setText(getString(R.string.turn_bluetooth_off_button));
-            bluetoothOn = true;
+        if(!isBluetoothOn()) {
+            startBluetooth();
         }
         else {
-            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-            Log.d(TAG, "Stopping bluetooth");
-            am.stopBluetoothSco();
+            stopBluetooth();
 
-            Button btn = (Button)findViewById(R.id.bluetooth_button);
+            Button btn = (Button) findViewById(R.id.bluetooth_button);
             btn.setText(getString(R.string.turn_bluetooth_on_button));
-            bluetoothOn = false;
         }
-
     }
 
     public void onRecordingButtonClick(View v) {
         if(!audioStreaming) {
-            startStreamingAudio();
+            Log.i(TAG, "Starting the audio stream");
+            audioStreaming = true;
+//            startService(new Intent(this, AudioStreamService.class));
+            bindService(new Intent(this, AudioStreamService.class), mConnection, Context.BIND_AUTO_CREATE);
+
             Button btn = (Button)findViewById(R.id.recording_button);
             btn.setText(getString(R.string.stop_recording_button));
         }
         else {
-            stopStreamingAudio();
+            Log.i(TAG, "Stopping the audio stream");
+            audioStreaming = false;
+//            stopService(new Intent(this, AudioStreamService.class));
+            unbindService(mConnection);
+
             Button btn = (Button)findViewById(R.id.recording_button);
             btn.setText(getString(R.string.start_recording_button));
         }
     }
 
-    private void startStreamingAudio() {
-        Log.i(TAG, "Starting the audio stream");
-        audioStreaming = true;
-        startStreaming();
-    }
+    public void startBluetooth() {
+        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 
-    private void startStreaming() {
-        Log.d(TAG, "Starting the background thread to stream the audio data");
+        if(am.isBluetoothScoOn()) {
+            Log.d(TAG, "Bluetooth is ON");
+        }
+        else {
+            Log.d(TAG, "Bluetooth is OFF");
+        }
 
-        Thread streamThread = new Thread(new Runnable() {
-
+        registerReceiver(new BroadcastReceiver() {
             @Override
-            public void run() {
-                try {
-                    Log.d(TAG, "Creating the buffer of size " + BUFFER_SIZE);
-                    byte[] buffer = new byte[BUFFER_SIZE];
+            public void onReceive(Context context, Intent intent) {
+                int state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
+                Log.d(TAG, "Audio SCO state: " + state);
 
-//                    Log.i(TAG, "Connecting to " + SERVER + ":" + PORT);
-//                    final InetAddress serverAddress = InetAddress.getByName(SERVER);
-//
-//                    Log.i(TAG, "Creating the socket");
-//                    Socket socket = new Socket(serverAddress, PORT);
-//
-//
-//                    Log.i(TAG, "Assigning streams");
-//                    DataInputStream dis = (DataInputStream) socket.getInputStream();
-//                    DataOutputStream dos = (DataOutputStream) socket.getOutputStream();
-//
-                    ProgressBar progressBar = (ProgressBar)findViewById(R.id.progressBar);
+                if (AudioManager.SCO_AUDIO_STATE_CONNECTED == state) {
+                    Log.d(TAG, "Audio SCO state: AudioManager.SCO_AUDIO_STATE_CONNECTED");
 
-                    Log.d(TAG, "Creating the AudioRecord");
-                    recorder = new AudioRecord(MediaRecorder.AudioSource.MIC,
-                            RECORDING_RATE, CHANNEL, FORMAT, BUFFER_SIZE * 10);
-
-                    Log.d(TAG, "AudioRecord start recording...");
-                    recorder.startRecording();
-
-                    if (recorder.getState() != AudioRecord.STATE_INITIALIZED)
-                        Log.d(TAG, "AudioRecord init failed");
-
-                    while (audioStreaming == true) {
-                       // read the audio data into the buffer
-                        int read = recorder.read(buffer, 0, buffer.length);
-
-                        ShortBuffer shortBuf = ByteBuffer.wrap(buffer, 0, read).
-                                order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
-                        short[] short_buffer = new short[shortBuf.remaining()];
-                        shortBuf.get(short_buffer);
-
-                        double e = 0.0;
-                        for(int i = 0; i < short_buffer.length; i++) {
-                            e += Math.abs(((double)short_buffer[i]))/256/50*100;
-                        }
-                        e /= short_buffer.length;
-
-                        progressBar.setProgress((int)e);
-
-                        // send the audio data to the server
-//                        dos.write(buffer, 0, read);
-                    }
-
-                    Log.d(TAG, "AudioRecord finished recording");
-
-                } catch (Exception e) {
-                    Log.e(TAG, "Exception: " + e);
+                    Button btn = (Button) findViewById(R.id.bluetooth_button);
+                    btn.setText(getString(R.string.turn_bluetooth_off_button));
                 }
-            }
-        });
+                if (AudioManager.SCO_AUDIO_STATE_CONNECTING == state) {
+                    Log.d(TAG, "Audio SCO state: AudioManager.SCO_AUDIO_STATE_CONNECTING");
+                }
+                if (AudioManager.SCO_AUDIO_STATE_DISCONNECTED == state) {
+                    Log.d(TAG, "Audio SCO state: AudioManager.SCO_AUDIO_STATE_DISCONNECTED");
 
-        // start the thread
-        streamThread.start();
+                    bluetoothOn = false;
+                    Toast.makeText(getApplicationContext(), R.string.failed_to_turn_bluetooth_on, Toast.LENGTH_SHORT).show();
+                }
+                if (AudioManager.SCO_AUDIO_STATE_ERROR == state) {
+                    Log.d(TAG, "Audio SCO state: AudioManager.SCO_AUDIO_STATE_ERROR");
+                }
+
+                unregisterReceiver(this);
+            }
+        }, new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
+
+        Log.d(TAG, "Starting bluetooth");
+        am.startBluetoothSco();
+        am.setBluetoothScoOn(true);
+
+        if(am.isBluetoothScoOn()) {
+            Log.d(TAG, "Bluetooth is ON");
+            bluetoothOn = true;
+        }
+        else {
+            Log.d(TAG, "Bluetooth is OFF");
+            bluetoothOn = false;
+        }
+
+    }
+    public void stopBluetooth() {
+        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        Log.d(TAG, "Stopping bluetooth");
+        am.stopBluetoothSco();
+        bluetoothOn = false;
     }
 
-    private void stopStreamingAudio() {
-
-        Log.i(TAG, "Stopping the audio stream");
-        audioStreaming = false;
-        if (recorder.getState() != AudioRecord.STATE_INITIALIZED)
-            Log.i(TAG, "AudioRecord init failed");
-        recorder.release();
+    public boolean isBluetoothOn() {
+        return bluetoothOn;
     }
 
     /**

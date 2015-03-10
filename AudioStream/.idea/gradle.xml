@@ -5,11 +5,11 @@
       <GradleProjectSettings>
         <option name="distributionType" value="LOCAL" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
-        <option name="gradleHome" value="$APPLICATION_HOME_DIR$/gradle/gradle-2.2.1" />
+        <option name="gradleHome" value="D:\Android\Android Studio\gradle\gradle-2.2.1" />
         <option name="modules">
           <set>
-            <option value="/ha/work/people/jurcicek/github/j-android-studio-projects/AudioStream" />
-            <option value="/ha/work/people/jurcicek/github/j-android-studio-projects/AudioStream/app" />
+            <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/app" />
           </set>
         </option>
       </GradleProjectSettings>
