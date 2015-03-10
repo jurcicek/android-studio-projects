@@ -29,10 +29,6 @@
             android:exported="false" >
         </service>
 
-        <activity
-            android:name=".Main2Activity"
-            android:label="@string/title_activity_main2" >
-        </activity>
     </application>
 
 </manifest>
