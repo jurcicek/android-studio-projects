@@ -5,13 +5,19 @@ import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.support.v4.app.NotificationCompat;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -22,9 +28,6 @@ import java.nio.ShortBuffer;
 /**
  * An {@link IntentService} subclass for handling asynchronous task requests in
  * a service on a separate handler thread.
- * <p/>
- * TODO: Customize class - update intent actions, extra parameters and static
- * helper methods.
  */
 public class AudioStreamService extends Service {
     private static String TAG = "AudioStreamService";
@@ -34,7 +37,6 @@ public class AudioStreamService extends Service {
     // We use it on Notification start, and to cancel it.
     private int NOTIFICATION = R.string.audio_streaming_service_started;
     final static int myID = 123422;
-
 
     // the server information
     private static final String SERVER = "xx.xx.xx.xx";
@@ -47,6 +49,7 @@ public class AudioStreamService extends Service {
 
     // the audio recorder
     private AudioRecord recorder;
+    private boolean bluetoothOn = false;
 
     // the minimum buffer size needed for audio recording
     private static int BUFFER_SIZE = 4*AudioRecord.getMinBufferSize(
@@ -75,18 +78,24 @@ public class AudioStreamService extends Service {
     public void onCreate() {
         mNM = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
 
-        Intent i = new Intent(this, MainActivity.class);
-        i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        PendingIntent pendIntent = PendingIntent.getActivity(this, 0, i, 0);
+        Intent intent = new Intent(this, AudioStreamService.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_FROM_BACKGROUND);
 
-        Notification.Builder builder = new Notification.Builder(this);
-        builder.setTicker("AudioStream").setContentTitle("AudioStream").setContentText("AudioStream streaming")
-                .setWhen(System.currentTimeMillis()).setAutoCancel(false)
-                .setOngoing(true).setPriority(Notification.PRIORITY_HIGH)
-                .setContentIntent(pendIntent);
+        PendingIntent pendIntent = PendingIntent.getActivity(getApplicationContext(), 12456, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext());
+        builder.setContentIntent(pendIntent)
+                .setTicker("AudioStream")
+                .setContentTitle("AudioStream")
+                .setContentText("AudioStream streaming")
+                .setWhen(System.currentTimeMillis())
+                .setAutoCancel(false)
+                .setOngoing(true)
+                .setPriority(Notification.PRIORITY_HIGH);
         Notification notification = builder.build();
 
         notification.flags |= Notification.FLAG_NO_CLEAR;
+
         startForeground(myID, notification);
 
         // Tell the user we started.
@@ -95,13 +104,6 @@ public class AudioStreamService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Log.d(TAG, "Received start id " + startId + ": " + intent);
-        super.onStartCommand(intent, flags, startId);
-
-        if (! t.isAlive()) {
-            t.start();
-        }
-
         return START_STICKY;
     }
 
@@ -116,12 +118,6 @@ public class AudioStreamService extends Service {
 
     @Override
     public IBinder onBind(Intent intent) {
-        Log.d(TAG, "Received onBind");
-
-        if (! t.isAlive()) {
-            t.start();
-        }
-
         return mBinder;
     }
 
@@ -129,16 +125,36 @@ public class AudioStreamService extends Service {
         return energy;
     }
 
+    public void startAudioStreaming() {
+        Log.d(TAG, "Staring audio streaming");
+
+        if (!audioStreaming) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    audioStreamingLoop();}
+            }).start();
+        }
+        else {
+            Log.d(TAG, " ... it was already running");
+        }
+    }
+
+    public void stopAudioStreaming() {
+        Log.d(TAG, "Stopping audio streaming");
+        audioStreaming = false;
+    }
+
+    public boolean isAudioStreaming() {
+        return audioStreaming;
+    }
+
     // This is the object that receives interactions from clients.  See
     // RemoteService for a more complete example.
     private final IBinder mBinder = new LocalBinder();
 
-    Thread t = new Thread(new Runnable() {
-        @Override
-        public void run() {audioStreaming();}
-    });
 
-    protected void audioStreaming() {
+    protected void audioStreamingLoop() {
         Log.d(TAG, "Starting the background thread to stream the audio data");
 
         audioStreaming = true;
@@ -199,6 +215,67 @@ public class AudioStreamService extends Service {
         } catch (Exception e) {
             Log.e(TAG, "Exception: " + e);
         }
+    }
+
+    public void startBluetooth() {
+        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+
+        if(am.isBluetoothScoOn()) {
+            Log.d(TAG, "Bluetooth is ON");
+        }
+        else {
+            Log.d(TAG, "Bluetooth is OFF");
+        }
+
+        registerReceiver(new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                int state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
+                Log.d(TAG, "Audio SCO state: " + state);
+
+                if (AudioManager.SCO_AUDIO_STATE_CONNECTED == state) {
+                    Log.d(TAG, "Audio SCO state: AudioManager.SCO_AUDIO_STATE_CONNECTED");
+                }
+                if (AudioManager.SCO_AUDIO_STATE_CONNECTING == state) {
+                    Log.d(TAG, "Audio SCO state: AudioManager.SCO_AUDIO_STATE_CONNECTING");
+                }
+                if (AudioManager.SCO_AUDIO_STATE_DISCONNECTED == state) {
+                    Log.d(TAG, "Audio SCO state: AudioManager.SCO_AUDIO_STATE_DISCONNECTED");
+
+                    bluetoothOn = false;
+                    Toast.makeText(getApplicationContext(), R.string.failed_to_turn_bluetooth_on, Toast.LENGTH_SHORT).show();
+                }
+                if (AudioManager.SCO_AUDIO_STATE_ERROR == state) {
+                    Log.d(TAG, "Audio SCO state: AudioManager.SCO_AUDIO_STATE_ERROR");
+                }
+
+                unregisterReceiver(this);
+            }
+        }, new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
+
+        Log.d(TAG, "Starting bluetooth");
+        am.startBluetoothSco();
+        am.setBluetoothScoOn(true);
+
+        if(am.isBluetoothScoOn()) {
+            Log.d(TAG, "Bluetooth is ON");
+            bluetoothOn = true;
+        }
+        else {
+            Log.d(TAG, "Bluetooth is OFF");
+            bluetoothOn = false;
+        }
+
+    }
+    public void stopBluetooth() {
+        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        Log.d(TAG, "Stopping bluetooth");
+        am.stopBluetoothSco();
+        bluetoothOn = false;
+    }
+
+    public boolean isBluetoothOn() {
+        return bluetoothOn;
     }
 
 }
